@@ -1,5 +1,4 @@
-/*	$OpenBSD: rx_strm.h,v 1.1 1998/09/14 21:53:17 art Exp $	*/
-/* $Header: /var/cvsync/src/usr.sbin/afs/src/rx/Attic/rx_strm.h,v 1.1 1998/09/14 21:53:17 art Exp $ */
+/* $Header: /var/cvsync/src/usr.sbin/afs/src/rx/Attic/rx_strm.h,v 1.2 2000/09/11 14:41:23 art Exp $ */
 /* $Source: /var/cvsync/src/usr.sbin/afs/src/rx/Attic/rx_strm.h,v $ */
 
 /*
