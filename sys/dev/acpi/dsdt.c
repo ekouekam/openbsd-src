@@ -2348,20 +2348,70 @@ aml_rwfield(struct aml_value *fld, int bpos, int blen, struct aml_value *val,
     int mode)
 {
 	struct aml_value tmp, *ref1, *ref2;
+	u_int32_t chunkaddr;
+	u_int64_t merged = 0;
+	int i = 0, bchunks = 1, sz = 1;
 
 	ref2 = fld->v_field.ref2;
 	ref1 = fld->v_field.ref1;
-	if (blen > fld->v_field.bitlen)
-		blen = fld->v_field.bitlen;
 
 	aml_lockfield(NULL, fld);
 	memset(&tmp, 0, sizeof(tmp));
 	aml_addref(&tmp, "fld.write");
+
 	if (fld->v_field.type == AMLOP_INDEXFIELD) {
-		_aml_setvalue(&tmp, AML_OBJTYPE_INTEGER, fld->v_field.ref3, 0);
-		aml_rwfield(ref2, 0, aml_intlen, &tmp, ACPI_IOWRITE);
-		aml_rwfield(ref1, fld->v_field.bitpos, fld->v_field.bitlen,
-		    val, mode);
+		/* repeat:
+		 *  - write field offset (+i) to the index register
+		 *  - read data from data register
+		 *  - shift data to left side of return buffer
+		 * for each fld->v_field.bitlen chunk in blen */
+
+		if (blen > ref1->v_field.bitlen)
+			bchunks = blen / ref1->v_field.bitlen;
+
+		dnprintf(10, "%s: %sing %d bits (in %d chunks) %s 0x%x\n",
+			(mode == ACPI_IOREAD ? "read" : "writ"),
+			aml_nodename(fld->node),
+			blen,
+			bchunks,
+			(mode == ACPI_IOREAD ? "from" : "to"),
+			fld->v_field.ref3);
+
+		switch (AML_FIELD_ACCESS(ref1->v_field.flags)) {
+		case AML_FIELD_WORDACC:
+			sz = 2;
+			break;
+		case AML_FIELD_DWORDACC:
+			sz = 4;
+			break;
+		case AML_FIELD_QWORDACC:
+			sz = 8;
+			break;
+		default:
+			sz = 1;
+			break;
+		}
+
+		for (i = 0; i < bchunks; i += sz) {
+			chunkaddr = fld->v_field.ref3 + i;
+
+			/* write field offset to index register */
+			_aml_setvalue(&tmp, AML_OBJTYPE_INTEGER, chunkaddr, 0);
+			aml_rwfield(ref2, 0, ref2->v_field.bitlen, &tmp,
+			    ACPI_IOWRITE);
+
+			/* read/write data from/to data register */
+			if (mode == ACPI_IOREAD)
+				_aml_setvalue(val, AML_OBJTYPE_INTEGER, 0, 0);
+
+			/* TODO: for writes, only shift in a chunk of val */
+			aml_rwfield(ref1, 0, ref1->v_field.bitlen, val, mode);
+
+			/* shift the returned value onto the left */
+			merged |= val->v_integer << (ref1->v_field.bitlen * i);
+		}
+
+		_aml_setvalue(val, AML_OBJTYPE_INTEGER, merged, 0);
 	} else if (fld->v_field.type == AMLOP_BANKFIELD) {
 		_aml_setvalue(&tmp, AML_OBJTYPE_INTEGER, fld->v_field.ref3, 0);
 		aml_rwfield(ref2, 0, aml_intlen, &tmp, ACPI_IOWRITE);
@@ -3422,7 +3472,7 @@ aml_parse(struct aml_scope *scope, int ret_type, const char *stype)
 		}
 		if (rv != NULL)
 			opargs[idx++] = rv;
-		}
+	}
 
 	/* --== Stage 2: Process opcode ==-- */
 	ival = 0;
