@@ -2619,6 +2619,14 @@ aml_store(struct aml_scope *scope, struct aml_value *lhs , int64_t ival,
 		aml_freevalue(lhs);
 		aml_copyvalue(lhs, rhs);
 		break;
+	case AML_OBJTYPE_METHOD:
+		/* Method override */
+		if (rhs->type != AML_OBJTYPE_INTEGER) {
+			aml_die("Overriding a method with non-int");
+		}
+		aml_freevalue(lhs);
+		aml_copyvalue(lhs, rhs);
+		break;
 	default:
 		aml_die("Store to default type!	 %x\n", lhs->type);
 		break;
