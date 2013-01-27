@@ -19,3 +19,4 @@ void db_acpi_showval(db_expr_t, int, db_expr_t, char *);
 void db_acpi_disasm(db_expr_t, int, db_expr_t, char *);
 void db_acpi_tree(db_expr_t, int, db_expr_t, char *);
 void db_acpi_trace(db_expr_t, int, db_expr_t, char *);
+void db_acpi_eval(db_expr_t, int, db_expr_t, char *);

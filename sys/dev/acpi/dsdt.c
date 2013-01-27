@@ -1745,8 +1745,6 @@ aml_val_to_string(const struct aml_value *val)
 int aml_error;
 
 struct aml_value *aml_gettgt(struct aml_value *, int);
-struct aml_value *aml_eval(struct aml_scope *, struct aml_value *, int, int,
-    struct aml_value *);
 struct aml_value *aml_parsesimple(struct aml_scope *, char,
     struct aml_value *);
 struct aml_value *aml_parse(struct aml_scope *, int, const char *);
@@ -2226,7 +2224,6 @@ aml_evalhid(struct aml_node *node, struct aml_value *val)
 	return (0);
 }
 
-void aml_rwfield(struct aml_value *, int, int, struct aml_value *, int);
 void aml_rwgas(struct aml_value *, int, int, struct aml_value *, int, int);
 
 /* Get PCI address for opregion objects */

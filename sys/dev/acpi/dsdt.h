@@ -61,6 +61,9 @@ void			aml_register_notify(struct aml_node *, const char *,
 			    int (*)(struct aml_node *, int, void *), void *,
 			    int);
 
+struct aml_value	*aml_eval(struct aml_scope *, struct aml_value *, int,
+			    int, struct aml_value *);
+
 int			aml_evalnode(struct acpi_softc *, struct aml_node *,
 			    int, struct aml_value *, struct aml_value *);
 int			aml_node_setval(struct acpi_softc *, struct aml_node *,
@@ -74,6 +77,9 @@ int			aml_evalinteger(struct acpi_softc *, struct aml_node *,
 void			aml_create_defaultobjects(void);
 
 const char		*aml_nodename(struct aml_node *);
+
+void			aml_rwfield(struct aml_value *, int, int,
+			    struct aml_value *, int);
 
 #define SRT_IRQ2		0x22
 #define SRT_IRQ3		0x23

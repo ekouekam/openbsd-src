@@ -357,6 +357,7 @@ struct db_command db_acpi_cmds[] = {
 	{ "showval",	db_acpi_showval,	CS_OWN,	NULL },
 	{ "tree",	db_acpi_tree,		0,	NULL },
 	{ "trace",	db_acpi_trace,		0,	NULL },
+	{ "eval",	db_acpi_eval,		CS_OWN,	NULL },
 	{ NULL,		NULL,			0,	NULL }
 };
 #endif /* NACPI > 0 */

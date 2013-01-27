@@ -47,6 +47,7 @@ void			db_aml_dump(int, u_int8_t *);
 void			db_aml_showvalue(struct aml_value *);
 void			db_aml_walktree(struct aml_node *);
 void			db_disprint(void *, const char *, ...);
+void			db_aml_eval(struct aml_value *);
 
 const char		*db_aml_fieldacc(int);
 const char		*db_aml_fieldlock(int);
@@ -93,6 +94,7 @@ void
 db_aml_showvalue(struct aml_value *value)
 {
 	int		idx;
+	struct aml_value ret;
 
 	if (value == NULL)
 		return;
@@ -165,6 +167,13 @@ db_aml_showvalue(struct aml_value *value)
 		if (value->v_field.ref1)
 			db_printf("  data: %s\n",
 			    aml_nodename(value->v_field.ref1->node));
+
+		memset(&ret, 0, sizeof(ret));
+		aml_rwfield(value, value->v_field.bitpos,
+		    value->v_field.bitlen, &ret, 0 /* APCI_IOREAD */);
+		db_printf("  value: ");
+		db_aml_showvalue(&ret);
+			
 		break;
 	case AML_OBJTYPE_BUFFERFIELD:
 		db_printf("%s: pos=%.4x len=%.4x\n",
@@ -184,6 +193,8 @@ db_aml_showvalue(struct aml_value *value)
 		db_printf("unknown: %d\n", value->type);
 		break;
 	}
+
+	aml_freevalue(&ret);
 }
 
 const char *
@@ -359,9 +370,27 @@ db_acpi_trace(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 			if (sp && sp->type) {
 				db_printf("  local%d: ", idx);
 				db_aml_showvalue(sp);
+			}
 		}
 	}
+}
+
+void
+db_acpi_eval(db_expr_t addr, int haddr, db_expr_t count, char *modif)
+{
+	struct aml_node *node;
+
+	if (db_parse_name())
+		return;
+
+	node = aml_searchname(&aml_root, scope);
+	if (node && node->value && node->value->type == AML_OBJTYPE_METHOD) {
+		struct aml_value *res;
+		res = aml_eval(NULL, node->value, 't', 0, NULL);
+		db_aml_showvalue(res);
 	}
+	else
+		db_printf("Not a valid method\n");
 }
 
 #endif /* DDB */
