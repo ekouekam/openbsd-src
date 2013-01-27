@@ -27,6 +27,7 @@
 #ifdef DDB
 #include <machine/db_machdep.h>
 #include <ddb/db_command.h>
+#include <ddb/db_var.h>
 #endif
 
 #include <dev/acpi/acpireg.h>
@@ -462,7 +463,11 @@ acpi_sleep(int ms, char *reason)
 	static int acpinowait;
 	int to = ms * hz / 1000;
 
-	if (cold)
+	if (cold
+#ifdef DDB
+	|| db_is_active
+#endif
+	)
 		delay(ms * 1000);
 	else {
 		if (to <= 0)
