@@ -306,7 +306,7 @@ void	userauth(Authctxt *, char *);
 static int sign_and_send_pubkey(Authctxt *, Identity *);
 static void pubkey_prepare(Authctxt *);
 static void pubkey_cleanup(Authctxt *);
-static Key *load_identity_file(char *);
+static Key *load_identity_file(char *, AuthenticationConnection *);
 
 static Authmethod *authmethod_get(char *authlist);
 static Authmethod *authmethod_lookup(const char *name);
@@ -1164,7 +1164,7 @@ input_userauth_jpake_server_confirm(int type, u_int32_t seq, void *ctxt)
 
 static int
 identity_sign(Identity *id, u_char **sigp, u_int *lenp,
-    u_char *data, u_int datalen)
+    u_char *data, u_int datalen, AuthenticationConnection *auth)
 {
 	Key *prv;
 	int ret;
@@ -1180,7 +1180,7 @@ identity_sign(Identity *id, u_char **sigp, u_int *lenp,
 	if (id->isprivate || (id->key->flags & KEY_FLAG_EXT))
 		return (key_sign(id->key, sigp, lenp, data, datalen));
 	/* load the private key from the file */
-	if ((prv = load_identity_file(id->filename)) == NULL)
+	if ((prv = load_identity_file(id->filename, auth)) == NULL)
 		return (-1);
 	ret = key_sign(prv, sigp, lenp, data, datalen);
 	key_free(prv);
@@ -1233,7 +1233,7 @@ sign_and_send_pubkey(Authctxt *authctxt, Identity *id)
 
 	/* generate signature */
 	ret = identity_sign(id, &signature, &slen,
-	    buffer_ptr(&b), buffer_len(&b));
+	    buffer_ptr(&b), buffer_len(&b), authctxt->agent);
 	if (ret == -1) {
 		xfree(blob);
 		buffer_free(&b);
@@ -1305,30 +1305,36 @@ send_pubkey_test(Authctxt *authctxt, Identity *id)
 }
 
 static Key *
-load_identity_file(char *filename)
+load_identity_file(char *filename, AuthenticationConnection *ac)
 {
 	Key *private;
-	char prompt[300], *passphrase;
-	int perm_ok = 0, quit, i;
+	char prompt[300], *passphrase, *comment = NULL;
+	int perm_ok = 0, quit, i, allowed = 0;
 	struct stat st;
 
 	if (stat(filename, &st) < 0) {
 		debug3("no such identity: %s", filename);
 		return NULL;
 	}
-	private = key_load_private_type(KEY_UNSPEC, filename, "", NULL, &perm_ok);
-	if (!perm_ok)
+	private = key_load_private_type(KEY_UNSPEC, filename, "", &comment, &perm_ok);
+	if (!perm_ok) {
+		if (comment)
+			xfree(comment);
 		return NULL;
+	}
 	if (private == NULL) {
-		if (options.batch_mode)
+		if (options.batch_mode) {
+			if (comment)
+				xfree(comment);
 			return NULL;
+		}
 		snprintf(prompt, sizeof prompt,
 		    "Enter passphrase for key '%.100s': ", filename);
 		for (i = 0; i < options.number_of_password_prompts; i++) {
 			passphrase = read_passphrase(prompt, 0);
 			if (strcmp(passphrase, "") != 0) {
 				private = key_load_private_type(KEY_UNSPEC,
-				    filename, passphrase, NULL, NULL);
+				    filename, passphrase, &comment, NULL);
 				quit = 0;
 			} else {
 				debug2("no passphrase given, try next key");
@@ -1338,9 +1344,39 @@ load_identity_file(char *filename)
 			xfree(passphrase);
 			if (private != NULL || quit)
 				break;
+			if (comment)
+				xfree(comment);
 			debug2("bad passphrase given, try again...");
 		}
 	}
+
+	/* If we loaded the key and have an agent, consider adding key. */
+	if (private == NULL || ac == NULL) {
+		if (comment)
+			xfree(comment);
+		return private;
+	}
+	if (options.add_key == 1)
+		allowed = 1;
+	if (options.add_key == 2) {
+		if (comment == NULL)
+			allowed = ask_permission("Add key %s to agent?",
+			    filename);
+		else
+			allowed = ask_permission("Add key %s (%s) to agent?",
+			    filename, comment);
+	}
+
+	if (allowed) {
+		/* Add for default lifetime; confirm each use. */
+		if (ssh_add_identity_constrained(ac, private, comment, 0, 1))
+			debug("Identity added: %s (%s)", filename, comment);
+		else
+			debug("Error while adding identity!");
+	}
+
+	if (comment)
+		xfree(comment);
 	return private;
 }
 
@@ -1485,7 +1521,8 @@ userauth_pubkey(Authctxt *authctxt)
 			sent = send_pubkey_test(authctxt, id);
 		} else if (id->key == NULL) {
 			debug("Trying private key: %s", id->filename);
-			id->key = load_identity_file(id->filename);
+			id->key = load_identity_file(id->filename,
+			    authctxt->agent);
 			if (id->key != NULL) {
 				id->isprivate = 1;
 				sent = sign_and_send_pubkey(authctxt, id);

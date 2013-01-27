@@ -132,6 +132,7 @@ typedef enum {
 	oTunnel, oTunnelDevice, oLocalCommand, oPermitLocalCommand,
 	oVisualHostKey, oUseRoaming, oZeroKnowledgePasswordAuthentication,
 	oKexAlgorithms, oIPQoS, oRequestTTY,
+	oAddKey,
 	oDeprecated, oUnsupported
 } OpCodes;
 
@@ -243,6 +244,7 @@ static struct {
 	{ "kexalgorithms", oKexAlgorithms },
 	{ "ipqos", oIPQoS },
 	{ "requesttty", oRequestTTY },
+	{ "addkeytoagent", oAddKey },
 
 	{ NULL, oBadOption }
 };
@@ -1040,6 +1042,10 @@ parse_int:
 			*intptr = value;
 		break;
 
+	case oAddKey:
+		intptr = &options->add_key;
+		goto parse_yesnoask;
+
 	case oDeprecated:
 		debug("%s line %d: Deprecated option \"%s\"",
 		    filename, linenum, keyword);
@@ -1194,6 +1200,7 @@ initialize_options(Options * options)
 	options->local_command = NULL;
 	options->permit_local_command = -1;
 	options->use_roaming = -1;
+	options->add_key = -1;
 	options->visual_host_key = -1;
 	options->zero_knowledge_password_authentication = -1;
 	options->ip_qos_interactive = -1;
@@ -1352,6 +1359,8 @@ fill_default_options(Options * options)
 		options->permit_local_command = 0;
 	if (options->use_roaming == -1)
 		options->use_roaming = 1;
+	if (options->add_key == -1)
+		options->add_key = 0;
 	if (options->visual_host_key == -1)
 		options->visual_host_key = 0;
 	if (options->zero_knowledge_password_authentication == -1)

@@ -135,6 +135,8 @@ typedef struct {
 	int	use_roaming;
 
 	int	request_tty;
+
+	int	add_key;	/* add keys to agent */
 }       Options;
 
 #define SSHCTL_MASTER_NO	0

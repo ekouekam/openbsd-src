@@ -109,6 +109,13 @@ When the command dies, so does the agent.
 .Pp
 The agent initially does not have any private keys.
 Keys are added using
+.Xr ssh 1
+(see
+.Cm AddKeyToAgent
+in
+.Xr ssh_config 5
+for details)
+or
 .Xr ssh-add 1 .
 When executed without arguments,
 .Xr ssh-add 1

@@ -57,20 +57,14 @@ extern char *__progname;
  * authenticate using the agent.
  */
 static int
-try_agent_authentication(void)
+try_agent_authentication(AuthenticationConnection *auth)
 {
 	int type;
 	char *comment;
-	AuthenticationConnection *auth;
 	u_char response[16];
 	u_int i;
 	Key *key;
 	BIGNUM *challenge;
-
-	/* Get connection to the agent. */
-	auth = ssh_get_authentication_connection();
-	if (!auth)
-		return 0;
 
 	if ((challenge = BN_new()) == NULL)
 		fatal("try_agent_authentication: BN_new failed");
@@ -134,7 +128,6 @@ try_agent_authentication(void)
 
 		/* The server returns success if it accepted the authentication. */
 		if (type == SSH_SMSG_SUCCESS) {
-			ssh_close_authentication_connection(auth);
 			BN_clear_free(challenge);
 			debug("RSA authentication accepted by server.");
 			return 1;
@@ -144,7 +137,6 @@ try_agent_authentication(void)
 			packet_disconnect("Protocol error waiting RSA auth response: %d",
 					  type);
 	}
-	ssh_close_authentication_connection(auth);
 	BN_clear_free(challenge);
 	debug("RSA authentication using agent refused.");
 	return 0;
@@ -200,7 +192,7 @@ respond_to_rsa_challenge(BIGNUM * challenge, RSA * prv)
  * the user using it.
  */
 static int
-try_rsa_authentication(int idx)
+try_rsa_authentication(int idx, AuthenticationConnection *auth)
 {
 	BIGNUM *challenge;
 	Key *public, *private;
@@ -291,6 +283,19 @@ try_rsa_authentication(int idx)
 		packet_read_expect(SSH_SMSG_FAILURE);
 		BN_clear_free(challenge);
 		return 0;
+	}
+
+	/*
+	 * Consider adding key to agent. We add keys for the default lifetime
+	 * with no need to confirm each use.
+	 */
+	if (auth != NULL && (options.add_key == 1 ||
+	    (options.add_key == 2 &&
+	     ask_permission("Add key %s (%s) to agent?", authfile, comment)))) {
+		if (ssh_add_identity_constrained(auth, private, comment, 0, 0))
+			debug("Identity added: %s (%s)", authfile, comment);
+		else
+			verbose("Error while adding identity!");
 	}
 
 	/* Compute and send a response to the challenge. */
@@ -670,6 +675,7 @@ ssh_userauth1(const char *local_user, const char *server_user, char *host,
     Sensitive *sensitive)
 {
 	int i, type;
+	AuthenticationConnection *auth = NULL;
 
 	if (supported_authentications == 0)
 		fatal("ssh_userauth1: server supports no auth methods");
@@ -715,14 +721,15 @@ ssh_userauth1(const char *local_user, const char *server_user, char *host,
 		 * agent is tried first because no passphrase is needed for
 		 * it, whereas identity files may require passphrases.
 		 */
-		if (try_agent_authentication())
+		auth = ssh_get_authentication_connection();
+		if (auth != NULL && try_agent_authentication(auth))
 			goto success;
 
 		/* Try RSA authentication for each identity. */
 		for (i = 0; i < options.num_identity_files; i++)
 			if (options.identity_keys[i] != NULL &&
 			    options.identity_keys[i]->type == KEY_RSA1 &&
-			    try_rsa_authentication(i))
+			    try_rsa_authentication(i, auth))
 				goto success;
 	}
 	/* Try challenge response authentication if the server supports it. */
@@ -746,5 +753,6 @@ ssh_userauth1(const char *local_user, const char *server_user, char *host,
 	/* NOTREACHED */
 
  success:
-	return;	/* need statement after label */
+	if (auth)
+		ssh_close_authentication_connection(auth);
 }

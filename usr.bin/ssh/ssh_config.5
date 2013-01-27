@@ -124,6 +124,27 @@ matches.
 See
 .Sx PATTERNS
 for more information on patterns.
+.It Cm AddKeyToAgent
+If this option is set to
+.Dq yes
+and
+.Xr ssh-agent 1
+is running, any keys unlocked with a password will be added to the agent (with
+the default lifetime).
+Setting this to
+.Dq ask
+will cause ssh to require confirmation using the
+.Ev SSH_ASKPASS
+program before the key is added (see
+.Xr ssh-add 1
+for details).
+The argument must be
+.Dq yes ,
+.Dq ask ,
+or
+.Dq no .
+The default is
+.Dq no .
 .It Cm AddressFamily
 Specifies which address family to use when connecting.
 Valid arguments are

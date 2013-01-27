@@ -407,6 +407,7 @@ For full details of the options listed below, and their possible values, see
 .Xr ssh_config 5 .
 .Pp
 .Bl -tag -width Ds -offset indent -compact
+.It AddKeyToAgent
 .It AddressFamily
 .It BatchMode
 .It BindAddress
@@ -800,6 +801,10 @@ The most convenient way to use public key or certificate authentication
 may be with an authentication agent.
 See
 .Xr ssh-agent 1
+and (optionally) the
+.Cm AddKeyToAgent
+directive in
+.Xr ssh_config 5
 for more information.
 .Pp
 Challenge-response authentication works as follows:
