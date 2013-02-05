@@ -111,3 +111,8 @@ file	dev/acpi/acpipwrres.c		acpipwrres
 device	aibs
 attach	aibs at acpi
 file	dev/acpi/atk0110.c		aibs
+
+# WMI
+device	acpiwmi
+attach	acpiwmi at acpi
+file	dev/acpi/acpiwmi.c		acpiwmi

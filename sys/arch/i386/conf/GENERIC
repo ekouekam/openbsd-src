@@ -65,6 +65,7 @@ acpivideo*	at acpi?
 acpivout*	at acpivideo?
 acpipwrres*	at acpi?
 aibs*		at acpi?
+acpiwmi*	at acpi?
 
 option		PCIVERBOSE
 option		EISAVERBOSE

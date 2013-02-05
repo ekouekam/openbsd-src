@@ -720,6 +720,8 @@ struct acpi_ivrs {
 #define ACPI_DEV_LD	"PNP0C0D"	/* Lid Device */
 #define ACPI_DEV_SBD	"PNP0C0E"	/* Sleep Button Device */
 #define ACPI_DEV_PILD	"PNP0C0F"	/* PCI Interrupt Link Device */
+#define ACPI_DEV_WMI	"PNP0C14"	/* WMI Device */
+#define ACPI_DEV_WMI2	"pnp0c14"	/* WMI Device */
 #define ACPI_DEV_MEMD	"PNP0C80"	/* Memory Device */
 #define ACPI_DEV_SHC	"ACPI0001"	/* SMBus 1.0 Host Controller */
 #define ACPI_DEV_SMS1	"ACPI0002"	/* Smart Battery Subsystem */

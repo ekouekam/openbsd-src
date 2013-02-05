@@ -2340,8 +2340,9 @@ acpi_foundhid(struct aml_node *node, void *arg)
 	    !strcmp(dev, ACPI_DEV_TOSHIBA_SPA40)) {
 		aaa.aaa_name = "acpitoshiba";
 		acpi_toshiba_enabled = 1;
-	}
-
+	} else if (!strcmp(dev, ACPI_DEV_WMI) ||
+	    !strcmp(dev, ACPI_DEV_WMI2))
+		aaa.aaa_name = "acpiwmi";
 
 	if (aaa.aaa_name)
 		config_found(self, &aaa, acpi_print);
