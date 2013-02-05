@@ -334,13 +334,12 @@ legitimize_address (pic, orig, reg, scratch)
 	      temp = ((reload_in_progress || reload_completed)
 		      ? reg : gen_reg_rtx (Pmode));
 
-	      emit_insn (gen_rtx_SET
-			 (VOIDmode, temp,
-			  gen_rtx_HIGH (SImode, addr)));
-
-	      emit_insn (gen_rtx_SET
-			 (VOIDmode, temp,
-			  gen_rtx_LO_SUM (SImode, temp, addr)));
+	      /* Must put the SYMBOL_REF inside an UNSPEC here so that cse
+		 won't get confused into thinking that these two instructions
+		 are loading in the true address of the symbol.  If in the
+		 future a PIC rtx exists, that should be used instead.  */
+	      emit_insn (gen_movsi_high_pic (temp, addr));
+	      emit_insn (gen_movsi_lo_sum_pic (temp, temp, addr));
 	      addr = temp;
 	    }
 

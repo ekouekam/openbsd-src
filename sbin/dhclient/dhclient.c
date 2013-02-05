@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.217 2013/01/27 02:45:46 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.225 2013/02/02 20:20:42 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -93,6 +93,7 @@ struct imsgbuf *unpriv_ibuf;
 void		 sighdlr(int);
 int		 findproto(char *, int);
 struct sockaddr	*get_ifa(char *, int);
+int		 resolv_conf_priority(int);
 void		 usage(void);
 int		 res_hnok(const char *dn);
 char		*option_as_string(unsigned int code, unsigned char *data, int len);
@@ -288,6 +289,15 @@ routehandler(void)
 	default:
 		break;
 	}
+
+	/* Something has happened. Try to write out the resolv.conf. */
+	if (client->active && client->active->resolv_conf)
+		write_file("/etc/resolv.conf",
+		    O_WRONLY | O_CREAT | O_TRUNC | O_SYNC | O_EXLOCK,
+		    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, 0, 0,
+		    client->active->resolv_conf,
+		    strlen(client->active->resolv_conf));
+
 	return;
 
 die:
@@ -394,14 +404,21 @@ main(int argc, char *argv[])
 		apply_ignore_list(ignore_list);
 
 	tailfd = open("/etc/resolv.conf.tail", O_RDONLY);
-	if (tailfd != -1 && fstat(tailfd, &sb) != -1) {
-		config->resolv_tail = calloc(1, sb.st_size + 1);
-		if (config->resolv_tail == NULL) {
-			error("no memory for resolv.conf.tail contents: %s",
+	if (tailfd == -1) {
+		if (errno != ENOENT)
+			error("Cannot open /etc/resolv.conf.tail: %s",
 			    strerror(errno));
-		} else {
-			tailn = read(tailfd, config->resolv_tail,
-			    sb.st_size);
+	} else if (fstat(tailfd, &sb) == -1) {
+		error("Cannot stat /etc/resolv.conf.tail: %s",
+		    strerror(errno));
+	} else {
+		if (sb.st_size > 0) {
+			config->resolv_tail = calloc(1, sb.st_size + 1);
+			if (config->resolv_tail == NULL) {
+				error("no memory for resolv.conf.tail "
+				    "contents: %s", strerror(errno));
+			}
+			tailn = read(tailfd, config->resolv_tail, sb.st_size);
 			if (tailn == -1)
 				error("Couldn't read resolv.conf.tail: %s",
 				    strerror(errno));
@@ -411,8 +428,7 @@ main(int argc, char *argv[])
 				error("Short read of resolv.conf.tail");
 		}
 		close(tailfd);
-	} else
-		note("/etc/resolv.conf.tail: %s", strerror(errno));
+	}
 
 	if (interface_status(ifi->name) == 0) {
 		interface_link_forceup(ifi->name);
@@ -754,7 +770,6 @@ bind_lease(void)
 	struct in_addr gateway, mask;
 	struct option_data *options;
 	struct client_lease *lease;
-	char *domainname, *nameservers;
 
 	delete_addresses(ifi->name, ifi->rdomain);
 	flush_routes_and_arp_cache(ifi->name, ifi->rdomain);
@@ -765,31 +780,6 @@ bind_lease(void)
 	memset(&mask, 0, sizeof(mask));
 	memcpy(&mask.s_addr, options[DHO_SUBNET_MASK].data,
 	    options[DHO_SUBNET_MASK].len);
-
-	if (options[DHO_DOMAIN_NAME].len)
-		domainname = strdup(pretty_print_option(
-		    DHO_DOMAIN_NAME, &options[DHO_DOMAIN_NAME], 0));
-	else
-		domainname = strdup("");
-	if (domainname == NULL)
-		error("no memory for domainname");
-
-	if (options[DHO_DOMAIN_NAME_SERVERS].len) {
-		nameservers = strdup(pretty_print_option(
-		    DHO_DOMAIN_NAME_SERVERS,
-		    &options[DHO_DOMAIN_NAME_SERVERS], 0));
-	} else
-		nameservers = strdup("");
-	if (nameservers == NULL)
-		error("no memory for nameservers");
-
-	client->new->resolv_conf = resolv_conf_contents(
-	    &options[DHO_DOMAIN_NAME], &options[DHO_DOMAIN_NAME_SERVERS]);
-	if (client->new->resolv_conf)
-		write_file("/etc/resolv.conf",
-		    O_WRONLY | O_CREAT | O_TRUNC | O_SYNC | O_EXLOCK,
-		    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, 0, 0,
-		    client->new->resolv_conf, strlen(client->new->resolv_conf));
 
         /*
 	 * Add address and default route last, so we know when the binding
@@ -804,8 +794,13 @@ bind_lease(void)
 		add_default_route(ifi->rdomain, client->new->address, gateway);
 	}
 
-	free(domainname);
-	free(nameservers);
+	client->new->resolv_conf = resolv_conf_contents(
+	    &options[DHO_DOMAIN_NAME], &options[DHO_DOMAIN_NAME_SERVERS]);
+	if (client->new->resolv_conf)
+		write_file("/etc/resolv.conf",
+		    O_WRONLY | O_CREAT | O_TRUNC | O_SYNC | O_EXLOCK,
+		    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, 0, 0,
+		    client->new->resolv_conf, strlen(client->new->resolv_conf));
 
 	/* Replace the old active lease with the new one. */
 	if (client->active)
@@ -1132,6 +1127,7 @@ state_panic(void)
 	struct client_lease *lp;
 	time_t cur_time;
 
+	time(&cur_time);
 	note("No DHCPOFFERS received.");
 
 	/* We may not have an active lease, but we may have some
@@ -1140,7 +1136,6 @@ state_panic(void)
 		goto activate_next;
 
 	/* Run through the list of leases and see if one can be used. */
-	time(&cur_time);
 	while (client->active) {
 		if (client->active->expiry > cur_time) {
 			note("Trying recorded lease %s",
@@ -1912,7 +1907,7 @@ char *
 resolv_conf_contents(struct option_data  *domainname,
     struct option_data *nameservers)
 {
-	char *dn, *ns, *nss[MAXNS], *contents, *p;
+	char *dn, *ns, *nss[MAXNS], *contents, *courtesy, *p;
 	size_t len;
 	int i, rslt;
 
@@ -1943,7 +1938,7 @@ resolv_conf_contents(struct option_data  *domainname,
 		}
 	}
 
-	len = strlen(dn) + 1;
+	len = strlen(dn);
 	for (i = 0; i < MAXNS; i++)
 		if (nss[i])
 			len += strlen(nss[i]);
@@ -1951,12 +1946,23 @@ resolv_conf_contents(struct option_data  *domainname,
 	if (len > 0 && config->resolv_tail)
 		len += strlen(config->resolv_tail);
 
-	if (len == 0)
+	if (len == 0) {
+		free(dn);
 		return (NULL);
+	}
 
+	rslt = asprintf(&courtesy, "# Generated by %s dhclient\n", ifi->name);
+	if (rslt == -1)
+		error("no memory for courtesy line");
+	len += strlen(courtesy);
+
+	len++; /* Need room for terminating NUL. */
 	contents = calloc(1, len);
 	if (contents == NULL)
 		error("no memory for resolv.conf contents");
+
+	strlcat(contents, courtesy, len);
+	free(courtesy);
 
 	strlcat(contents, dn, len);
 	free(dn);
@@ -2183,6 +2189,7 @@ write_file(char *path, int flags, mode_t mode, uid_t uid, gid_t gid,
 	size_t rslt;
 
 	imsg = calloc(1, sizeof(*imsg) + sz);
+	imsg->rdomain = ifi->rdomain;
 
 	rslt = strlcpy(imsg->path, path, MAXPATHLEN);
 	if (rslt >= MAXPATHLEN) {
@@ -2212,6 +2219,10 @@ priv_write_file(struct imsg_write_file *imsg)
 {
 	ssize_t n;
 	int fd;
+
+	if ((strcmp("/etc/resolv.conf", imsg->path) == 0) &&
+	    !resolv_conf_priority(imsg->rdomain))
+		return;
 
 	fd = open(imsg->path, imsg->flags, imsg->mode);
 	if (fd == -1) {

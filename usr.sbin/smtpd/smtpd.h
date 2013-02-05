@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.398 2013/01/26 09:37:23 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.403 2013/02/05 15:23:40 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -577,9 +577,10 @@ struct smtpd {
 #define	TRACE_MTA	0x0020
 #define	TRACE_BOUNCE	0x0040
 #define	TRACE_SCHEDULER	0x0080
-#define	TRACE_STAT	0x0100
-#define	TRACE_RULES	0x0200
-#define	TRACE_IMSGSIZE	0x0400
+#define	TRACE_LOOKUP	0x0100
+#define	TRACE_STAT	0x0200
+#define	TRACE_RULES	0x0400
+#define	TRACE_IMSGSIZE	0x0800
 
 #define PROFILE_TOSTAT	0x0001
 #define PROFILE_IMSG	0x0002
@@ -723,8 +724,7 @@ struct mta_relay {
 #define RELAY_WAIT_PREFERENCE	0x02
 #define RELAY_WAIT_SECRET	0x04
 #define RELAY_WAIT_SOURCE	0x08
-#define RELAY_WAIT_HELO		0x10
-#define RELAY_WAITMASK		0x1f
+#define RELAY_WAITMASK		0x0f
 	int			 status;
 
 	int			 refcount;
@@ -734,12 +734,21 @@ struct mta_relay {
 	size_t			 maxconn;
 };
 
+struct mta_envelope {
+	TAILQ_ENTRY(mta_envelope)	 entry;
+	uint64_t			 id;
+	time_t				 creation;
+	char				*dest;
+	char				*rcpt;
+	struct mta_task			*task;
+};
+
 struct mta_task {
-	TAILQ_ENTRY(mta_task)	 entry;
-	struct mta_relay	*relay;
-	uint32_t		 msgid;
-	TAILQ_HEAD(, envelope)	 envelopes;
-	struct mailaddr		 sender;
+	TAILQ_ENTRY(mta_task)		 entry;
+	struct mta_relay		*relay;
+	uint32_t			 msgid;
+	TAILQ_HEAD(, mta_envelope)	 envelopes;
+	char				*sender;
 };
 
 enum queue_op {
@@ -896,11 +905,8 @@ struct stat_digest {
 	size_t			 dlv_loop;
 };
 
-#if 1
-#define MSZ_EVP	(32 + sizeof(struct envelope))
-#else
-#define MSZ_EVP	384
-#endif
+#define MSZ_EVP		512
+
 
 struct mproc {
 	pid_t		 pid;
@@ -1099,6 +1105,7 @@ int envelope_dump_buffer(const struct envelope *, char *, size_t);
 int expand_cmp(struct expandnode *, struct expandnode *);
 void expand_insert(struct expand *, struct expandnode *);
 struct expandnode *expand_lookup(struct expand *, struct expandnode *);
+void expand_clear(struct expand *);
 void expand_free(struct expand *);
 int expand_line(struct expand *, const char *, int);
 RB_PROTOTYPE(expandtree, expandnode, nodes, expand_cmp);
@@ -1189,10 +1196,10 @@ void m_get_envelope(struct msg *, struct envelope *);
 /* mta.c */
 pid_t mta(void);
 void mta_route_ok(struct mta_relay *, struct mta_route *);
-void mta_route_error(struct mta_relay *, struct mta_route *, const char *);
+void mta_route_error(struct mta_relay *, struct mta_route *);
 void mta_route_collect(struct mta_relay *, struct mta_route *);
 void mta_source_error(struct mta_relay *, struct mta_route *, const char *);
-void mta_delivery(struct envelope *, const char *, int, const char *);
+void mta_delivery(struct mta_envelope *, const char *, int, const char *);
 struct mta_task *mta_route_next_task(struct mta_relay *, struct mta_route *);
 const char *mta_host_to_text(struct mta_host *);
 const char *mta_relay_to_text(struct mta_relay *);
@@ -1298,6 +1305,7 @@ void table_destroy(struct table *);
 void table_add(struct table *, const char *, const char *);
 void table_delete(struct table *, const char *);
 void table_delete_all(struct table *);
+void table_replace(struct table *, struct table *);
 int table_domain_match(const char *, const char *);
 int table_netaddr_match(const char *, const char *);
 int table_mailaddr_match(const char *, const char *);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: table.c,v 1.1 2013/01/26 09:37:24 gilles Exp $	*/
+/*	$OpenBSD: table.c,v 1.3 2013/02/05 15:23:40 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -157,6 +157,17 @@ table_destroy(struct table *t)
 }
 
 void
+table_replace(struct table *orig, struct table *tnew)
+{
+	void	*p = NULL;
+
+	while (dict_poproot(&orig->t_dict, NULL, (void **)&p))
+		free(p);
+	dict_merge(&orig->t_dict, &tnew->t_dict);
+	table_destroy(tnew);
+}
+
+void
 table_set_configuration(struct table *t, struct table *config)
 {
 	strlcpy(t->t_cfgtable, config->t_name, sizeof t->t_cfgtable);
@@ -301,8 +312,12 @@ table_config_parse(void *p, const char *config, enum table_type type)
 		valp = keyp;
 		strsep(&valp, " \t:");
 		if (valp) {
-			while (*valp && isspace(*valp))
+			while (*valp) {
+				if (!isspace(*valp) &&
+				    !(*valp == ':' && isspace(*(valp + 1))))
+					break;
 				++valp;
+			}
 			if (*valp == '\0')
 				valp = NULL;
 		}

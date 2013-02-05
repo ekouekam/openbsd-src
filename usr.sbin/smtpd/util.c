@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.90 2013/01/26 09:37:24 gilles Exp $	*/
+/*	$OpenBSD: util.c,v 1.92 2013/02/05 11:45:18 gilles Exp $	*/
 
 /*
  * Copyright (c) 2000,2001 Markus Friedl.  All rights reserved.
@@ -365,14 +365,16 @@ mktmpfile(void)
 {
 	char		path[MAXPATHLEN];
 	int		fd;
+	mode_t		omode;
 
 	if (! bsnprintf(path, sizeof(path), "%s/smtpd.XXXXXXXXXX",
 	    PATH_TEMPORARY))
 		err(1, "snprintf");
 
+	omode = umask(7077);
 	if ((fd = mkstemp(path)) == -1)
 		err(1, "cannot create temporary file %s", path);
-
+	umask(omode);
 	unlink(path);
 	return (fd);
 }
@@ -429,7 +431,7 @@ valid_localpart(const char *s)
  * RFC 5322 defines theses characters as valid: !#$%&'*+-/=?^_`{|}~
  * some of them are potentially dangerous, and not so used after all.
  */
-#define IS_ATEXT(c)     (isalnum((int)(c)) || strchr("%+-=_", (c)))
+#define IS_ATEXT(c)     (isalnum((int)(c)) || strchr("%+-/=_", (c)))
 nextatom:
 	if (! IS_ATEXT(*s) || *s == '\0')
 		return 0;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.111 2013/01/26 09:37:23 gilles Exp $	*/
+/*	$OpenBSD: parse.y,v 1.113 2013/02/05 15:30:59 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -430,6 +430,7 @@ main		: QUEUE compression {
 			    >= sizeof (filter->name)) {
        				yyerror("Filter name too long: %s", filter->name);
 				free($2);
+				free(filter);
 				YYERROR;
 				
 			}
@@ -442,6 +443,7 @@ main		: QUEUE compression {
 			else {
        				yyerror("ambiguous filter name: %s", filter->name);
 				free($2);
+				free(filter);
 				YYERROR;
 			}
 			free($2);
@@ -459,6 +461,7 @@ main		: QUEUE compression {
 				free(filter);
 				free($2);
 				free($3);
+				free(filter);
 				YYERROR;
 			}
 
@@ -469,6 +472,7 @@ main		: QUEUE compression {
        				yyerror("ambiguous filter name: %s", filter->name);
 				free($2);
 				free($3);
+				free(filter);
 				YYERROR;
 			}
 			free($2);
@@ -898,7 +902,8 @@ rule		: ACCEPT {
 					type = T_HASH;
 					break;
 				}
-				if (! table_check_type(rule->r_mapping, type)) {
+				if (! table_check_service(rule->r_mapping, K_ALIAS) &&
+				    ! table_check_type(rule->r_mapping, type)) {
 					yyerror("invalid use of table \"%s\" as VIRTUAL parameter",
 					    rule->r_mapping->t_name);
 					YYERROR;

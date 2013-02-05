@@ -1,4 +1,4 @@
-/*	$OpenBSD: mta_session.c,v 1.27 2013/01/26 09:37:23 gilles Exp $	*/
+/*	$OpenBSD: mta_session.c,v 1.32 2013/02/05 10:53:57 nicm Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -110,7 +110,7 @@ struct mta_session {
 
 	enum mta_state		 state;
 	struct mta_task		*task;
-	struct envelope		*currevp;
+	struct mta_envelope	*currevp;
 	FILE			*datafp;
 };
 
@@ -325,7 +325,7 @@ mta_session_imsg(struct mproc *p, struct imsg *imsg)
 			mta_connect(s);
 		} else {
 			mta_source_error(s->relay, s->route,
-			    "Failed to retreive helo string");
+			    "Failed to retrieve helo string");
 			mta_free(s);
 		}
 		return;
@@ -443,8 +443,10 @@ mta_connect(struct mta_session *s)
 		schema = "smtps://";
 	else
 		schema = "smtp://";
-	log_debug("debug: mta: %p: connecting to %s%s:%i (%s)",
-	    s, schema, sa_to_text(sa), portno, s->route->dst->ptrname);
+
+	log_info("smtp-out: Connecting to %s%s:%i (%s) on session"
+	    " %016"PRIx64"...", schema, sa_to_text(s->route->dst->sa),
+	    portno, s->route->dst->ptrname, s->id);
 
 	mta_enter_state(s, MTA_INIT);
 	iobuf_xinit(&s->iobuf, 0, 0, "mta_connect");
@@ -569,19 +571,13 @@ mta_enter_state(struct mta_session *s, int newstate)
 		break;
 
 	case MTA_MAIL:
-		if (s->task->sender.user[0] && s->task->sender.domain[0])
-			mta_send(s, "MAIL FROM: <%s@%s>",
-			    s->task->sender.user, s->task->sender.domain);
-		else
-			mta_send(s, "MAIL FROM: <>");
+		mta_send(s, "MAIL FROM: <%s>", s->task->sender);
 		break;
 
 	case MTA_RCPT:
 		if (s->currevp == NULL)
 			s->currevp = TAILQ_FIRST(&s->task->envelopes);
-		mta_send(s, "RCPT TO: <%s@%s>",
-		    s->currevp->dest.user,
-		    s->currevp->dest.domain);
+		mta_send(s, "RCPT TO: <%s>", s->currevp->dest);
 		break;
 
 	case MTA_DATA:
@@ -632,9 +628,9 @@ mta_enter_state(struct mta_session *s, int newstate)
 static void
 mta_response(struct mta_session *s, char *line)
 {
-	struct envelope	*evp;
-	char		 buf[MAX_LINE_SIZE];
-	int		 delivery;
+	struct mta_envelope	*e;
+	char			 buf[MAX_LINE_SIZE];
+	int			 delivery;
 
 	switch (s->state) {
 
@@ -707,7 +703,7 @@ mta_response(struct mta_session *s, char *line)
 		break;
 
 	case MTA_RCPT:
-		evp = s->currevp;
+		e = s->currevp;
 		s->currevp = TAILQ_NEXT(s->currevp, entry);
 		if (line[0] != '2') {
 			if (line[0] == '5')
@@ -715,11 +711,13 @@ mta_response(struct mta_session *s, char *line)
 			else
 				delivery = IMSG_DELIVERY_TEMPFAIL;
 
-			TAILQ_REMOVE(&s->task->envelopes, evp, entry);
+			TAILQ_REMOVE(&s->task->envelopes, e, entry);
 			snprintf(buf, sizeof(buf), "%s",
 			    mta_host_to_text(s->route->dst));
-			mta_delivery(evp, buf, delivery, line);
-			free(evp);
+			mta_delivery(e, buf, delivery, line);
+			free(e->dest);
+			free(e->rcpt);
+			free(e);
 			stat_decrement("mta.envelope", 1);
 
 			if (TAILQ_EMPTY(&s->task->envelopes)) {
@@ -794,8 +792,8 @@ mta_io(struct io *io, int evt)
 			schema = "smtps://";
 		else
 			schema = "smtp://";
-		log_debug("debug: mta: %p: connected to %s%s (%s)",
-		    s, schema, sa_to_text(s->route->dst->sa), s->route->dst->ptrname);
+
+		log_info("smtp-out: Connected on session %016"PRIx64, s->id);
 
 		if (s->use_smtps) {
 			io_set_write(io);
@@ -867,6 +865,9 @@ mta_io(struct io *io, int evt)
 			goto nextline;
 
 		if (s->state == MTA_QUIT) {
+			log_info("smtp-out: Closing session %016"PRIx64
+			    ": %i message%s sent.", s->id, s->msgcount,
+			    (s->msgcount > 1) ? "s" : "");
 			mta_free(s);
 			return;
 		}
@@ -989,9 +990,9 @@ mta_queue_data(struct mta_session *s)
 static void
 mta_flush_task(struct mta_session *s, int delivery, const char *error)
 {
-	struct envelope	*e;
-	char		 relay[MAX_LINE_SIZE];
-	size_t		 n;
+	struct mta_envelope	*e;
+	char			 relay[MAX_LINE_SIZE];
+	size_t			 n;
 
 	snprintf(relay, sizeof relay, "%s", mta_host_to_text(s->route->dst));
 
@@ -999,12 +1000,20 @@ mta_flush_task(struct mta_session *s, int delivery, const char *error)
 	while ((e = TAILQ_FIRST(&s->task->envelopes))) {
 		TAILQ_REMOVE(&s->task->envelopes, e, entry);
 		mta_delivery(e, relay, delivery, error);
+		free(e->dest);
+		free(e->rcpt);
 		free(e);
 		n++;
 	}
 
+	free(s->task->sender);
 	free(s->task);
 	s->task = NULL;
+
+	if (s->datafp) {
+		fclose(s->datafp);
+		s->datafp = NULL;
+	}
 
 	stat_decrement("mta.envelope", n);
 	stat_decrement("mta.task.running", 1);
@@ -1018,20 +1027,30 @@ mta_error(struct mta_session *s, const char *fmt, ...)
 	char	*error;
 	int	 len;
 
-	/*
-	 * If not connected yet, and the error is not local, just ignore it
-	 * and try to reconnect.
-	 */
-	if (s->state == MTA_INIT && 
-	    (errno == ETIMEDOUT || errno == ECONNREFUSED))
-		return;
-
 	va_start(ap, fmt);
 	if ((len = vasprintf(&error, fmt, ap)) == -1)
 		fatal("mta: vasprintf");
 	va_end(ap);
 
-	mta_route_error(s->relay, s->route, error);
+	if (s->msgcount)
+		log_info("smtp-out: Error on session %016"PRIx64
+		    " after %i message%s sent: %s", s->id, s->msgcount,
+		    (s->msgcount > 1) ? "s" : "", error);
+	else
+		log_info("smtp-out: Error on session %016"PRIx64 ": %s",
+		    s->id, error);
+	/*
+	 * If not connected yet, and the error is not local, just ignore it
+	 * and try to reconnect.
+	 */
+	if (s->state == MTA_INIT && 
+	    (errno == ETIMEDOUT || errno == ECONNREFUSED)) {
+		log_debug("debug: mta: not reporting route error yet");
+		free(error);
+		return;
+	}
+
+	mta_route_error(s->relay, s->route);
 
 	if (s->task)
 		mta_flush_task(s, IMSG_DELIVERY_TEMPFAIL, error);
