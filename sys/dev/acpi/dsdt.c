@@ -2349,7 +2349,7 @@ aml_rwfield(struct aml_value *fld, int bpos, int blen, struct aml_value *val,
 {
 	struct aml_value tmp, *ref1, *ref2;
 	u_int32_t chunkaddr;
-	u_int64_t merged = 0;
+	u_int64_t merged = 0, chunk;
 	int i = 0, bchunks = 1, sz = 1;
 
 	ref2 = fld->v_field.ref2;
@@ -2360,18 +2360,25 @@ aml_rwfield(struct aml_value *fld, int bpos, int blen, struct aml_value *val,
 	aml_addref(&tmp, "fld.write");
 
 	if (fld->v_field.type == AMLOP_INDEXFIELD) {
-		/* repeat:
-		 *  - write field offset (+i) to the index register
-		 *  - read data from data register
-		 *  - shift data to left side of return buffer
-		 * for each fld->v_field.bitlen chunk in blen */
+		/* read:
+		 *  write field offset (+i) to the index register
+		 *  read val chunk from data register
+		 *  shift val chunk to left side of return buffer
+		 *  ex: reads of 0x5b and 0xf9 return 0xf95b
+		 *
+		 * write:
+		 *  write field offset (+i) to the index register
+		 *  shift chunk from right side of val
+		 *  write chunk to data register
+		 *  ex: write of 0xf95b writes 0x5b then 0xf9
+		 */
 
 		if (blen > ref1->v_field.bitlen)
 			bchunks = blen / ref1->v_field.bitlen;
 
-		dnprintf(10, "%s: %sing %d bits (in %d chunks) %s 0x%x\n",
-			(mode == ACPI_IOREAD ? "read" : "writ"),
+		printf("%s: %sing %d bits (in %d chunks) %s 0x%x\n",
 			aml_nodename(fld->node),
+			(mode == ACPI_IOREAD ? "read" : "writ"),
 			blen,
 			bchunks,
 			(mode == ACPI_IOREAD ? "from" : "to"),
@@ -2401,17 +2408,27 @@ aml_rwfield(struct aml_value *fld, int bpos, int blen, struct aml_value *val,
 			    ACPI_IOWRITE);
 
 			/* read/write data from/to data register */
-			if (mode == ACPI_IOREAD)
+			if (mode == ACPI_IOREAD) {
 				_aml_setvalue(val, AML_OBJTYPE_INTEGER, 0, 0);
-
-			/* TODO: for writes, only shift in a chunk of val */
-			aml_rwfield(ref1, 0, ref1->v_field.bitlen, val, mode);
-
-			/* shift the returned value onto the left */
-			merged |= val->v_integer << (ref1->v_field.bitlen * i);
+				aml_rwfield(ref1, 0, ref1->v_field.bitlen,
+				    val, mode);
+				/* shift the returned value onto the left */
+				merged |= val->v_integer <<
+				    (ref1->v_field.bitlen * i);
+			}
+			else if (mode == ACPI_IOWRITE) {
+				/* write out a chunk of the value */
+				chunk = (val->v_integer & ((256 ^ i) - 1)) >>
+				    (8 * i);
+				_aml_setvalue(&tmp, AML_OBJTYPE_INTEGER,
+				    chunk, 0);
+				aml_rwfield(ref1, 0, ref1->v_field.bitlen,
+				    &tmp, mode);
+			}
 		}
 
-		_aml_setvalue(val, AML_OBJTYPE_INTEGER, merged, 0);
+		if (mode == ACPI_IOREAD)
+			_aml_setvalue(val, AML_OBJTYPE_INTEGER, merged, 0);
 	} else if (fld->v_field.type == AMLOP_BANKFIELD) {
 		_aml_setvalue(&tmp, AML_OBJTYPE_INTEGER, fld->v_field.ref3, 0);
 		aml_rwfield(ref2, 0, aml_intlen, &tmp, ACPI_IOWRITE);
